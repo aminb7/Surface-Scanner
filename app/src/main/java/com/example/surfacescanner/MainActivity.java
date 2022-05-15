@@ -2,19 +2,23 @@ package com.example.surfacescanner;
 
 import static java.lang.Math.abs;
 
+import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
 
+import android.annotation.SuppressLint;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.widget.Button;
-import android.widget.TextView;
 
-//import com.jjoe64.graphview.GraphView;
-//import com.jjoe64.graphview.series.DataPoint;
-//import com.jjoe64.graphview.series.LineGraphSeries;
+import com.jjoe64.graphview.GraphView;
+import com.jjoe64.graphview.series.DataPoint;
+import com.jjoe64.graphview.series.LineGraphSeries;
+
+import java.util.ArrayList;
 
 
 public class MainActivity extends AppCompatActivity {
@@ -27,24 +31,46 @@ public class MainActivity extends AppCompatActivity {
 
     private double distance = 0;
     private double speed = 0;
+    private GraphView graphView;
+    private ArrayList<Double> xGraph = new ArrayList<>();
+    private ArrayList<Double> yGraph = new ArrayList<>();
     private double omega = 0;
+    private double angle = 0;
+    private double y = 0;
 
-    private SensorEventListener gyroscopeListener = new SensorEventListener() {
+//    private ArrayList<float> xGraph;
+
+    private Long lastGyroTime;
+    private Long lastAcceleroTime;
+    private float zacceleration = 0;
+
+    private final SensorEventListener gyroscopeListener = new SensorEventListener() {
+        @SuppressLint("SetTextI18n")
         @Override
         public void onSensorChanged(SensorEvent sensorEvent) {
-            if (abs(sensorEvent.values[0]) < 0.01)
+            omega = sensorEvent.values[1];
+            if (Math.abs(zacceleration) < 0.04 && Math.abs(omega) < 0.08)
                 return;
-            omega = sensorEvent.values[2];
-            TextView textView = findViewById(R.id.textView);
-            textView.setText(Double.toString(omega));
 
+            double timeDelta = (double)(sensorEvent.timestamp - lastGyroTime) / NS2S;
 
+            angle += omega * timeDelta;
+            y -= Math.sin(angle);
 
+            xGraph.add(distance * 2);
+            yGraph.add(y);
+            DataPoint[] dataPoints = new DataPoint[xGraph.size()];
+            for (int i = 0; i < xGraph.size(); i++) {
+                dataPoints[i] = new DataPoint(xGraph.get(i) , yGraph.get(i));
+            }
+            LineGraphSeries<DataPoint> series = new LineGraphSeries<>(dataPoints);
+            graphView.removeAllSeries();
+            graphView.addSeries(series);
 
 //            Long currTime = System.nanoTime();
 //            Long prevTime = sensorEvent.timestamp;
 //            double timeDelta = (double)(currTime - prevTime) / NS2S;
-
+            lastGyroTime = sensorEvent.timestamp;
         }
 
         @Override
@@ -53,23 +79,28 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
-    private SensorEventListener accelerometerListener = new SensorEventListener() {
+    private final SensorEventListener accelerometerListener = new SensorEventListener() {
         @Override
         public void onSensorChanged(SensorEvent sensorEvent) {
+            zacceleration = sensorEvent.values[2];
             float acceleration = sensorEvent.values[0];
             if (abs(acceleration) < 0.01)
                 return;
 
-            Long currTime = System.nanoTime();
-            Long prevTime = sensorEvent.timestamp;
-            double timeDelta = (double)(currTime - prevTime) / NS2S;
+            long currTime = System.nanoTime();
+            long prevTime = sensorEvent.timestamp;
+            double timeDelta = (double)(sensorEvent.timestamp - lastAcceleroTime) / NS2S;
 
 //            System.out.println("timeDelta: " + timeDelta);
 
-            double currentDistance = 1/2*acceleration * (timeDelta*timeDelta) + speed * timeDelta;
+            double currentDistance = acceleration * (timeDelta*timeDelta) / 2 + speed * timeDelta;
             distance += abs(currentDistance);
-            speed = abs(sensorEvent.values[0] * timeDelta);
+            double prevSpeed = speed;
+            speed = abs(sensorEvent.values[0] * timeDelta) + prevSpeed;
 
+//            sensorManager.registerListener(gyroscopeListener, sensorGyroscope, (int) (100 / Math.abs(speed)));
+
+            lastAcceleroTime = sensorEvent.timestamp;
 
             System.out.println("currTime: " + currTime);
             System.out.println("prevTime: " + prevTime);
@@ -77,7 +108,6 @@ public class MainActivity extends AppCompatActivity {
             System.out.println("speed: " + speed);
             System.out.println("distance: " + distance);
             System.out.println("--------------------------");
-
         }
 
         @Override
@@ -86,6 +116,7 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
+    @SuppressLint("SetTextI18n")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -96,52 +127,46 @@ public class MainActivity extends AppCompatActivity {
         sensorAccelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
         isButtonStarted = false;
 
-//        GraphView graphView = findViewById(R.id.idGraphView);
-//        LineGraphSeries<DataPoint> series = new LineGraphSeries<>(new DataPoint[]{
-//                // on below line we are adding
-//                // each point on our x and y axis.
-//                new DataPoint(0, 1),
-//                new DataPoint(1, 3),
-//                new DataPoint(2, 4),
-//                new DataPoint(3, 9),
-//                new DataPoint(4, 6),
-//                new DataPoint(5, 3),
-//                new DataPoint(6, 6),
-//                new DataPoint(7, 1),
-//                new DataPoint(8, 2)
-//        });
-//        graphView.setTitle("My Graph View");
-//
-//        // on below line we are setting
-//        // text color to our graph view.
-//        graphView.setTitleColor(R.color.purple_200);
-//
-//        // on below line we are setting
-//        // our title text size.
-//        graphView.setTitleTextSize(18);
-//
-//        // on below line we are adding
-//        // data series to our graph view.
-//        graphView.addSeries(series);
+        lastGyroTime = SystemClock.elapsedRealtimeNanos();
+        lastAcceleroTime = SystemClock.elapsedRealtimeNanos();
+
+        graphView = findViewById(R.id.idGraphView);
+        graphView.setTitle("Scan Result");
+        graphView.setTitleColor(R.color.purple_500);
+        graphView.setTitleTextSize(46);
+//        graphView.setBackgroundColor((R.color.);
+        graphView.getViewport().setMinX(0);
+        graphView.getViewport().setMaxX(30);
+        graphView.getViewport().setMinY(-400);
+        graphView.getViewport().setMaxY(400);
+        graphView.getViewport().setYAxisBoundsManual(true);
+        graphView.getViewport().setXAxisBoundsManual(true);
+        graphView.getViewport().setScalable(true);
 
         Button button = findViewById(R.id.Start);
         button.setOnClickListener(v -> {
             if (!isButtonStarted) {
-                sensorManager.registerListener(gyroscopeListener, sensorGyroscope, SensorManager.SENSOR_DELAY_FASTEST);
-                sensorManager.registerListener(accelerometerListener, sensorGyroscope, SensorManager.SENSOR_DELAY_FASTEST);
+                sensorManager.registerListener(gyroscopeListener, sensorGyroscope, SensorManager.SENSOR_DELAY_GAME);
+                sensorManager.registerListener(accelerometerListener, sensorGyroscope, SensorManager.SENSOR_DELAY_NORMAL);
                 isButtonStarted = true;
-                TextView textView = findViewById(R.id.textView);
-                textView.setText("0");
                 button.setText("end");
+                graphView.removeAllSeries();
             } else {
                 sensorManager.unregisterListener(gyroscopeListener);
                 sensorManager.unregisterListener(accelerometerListener);
                 isButtonStarted = false;
                 speed = 0;
                 distance = 0;
+                omega = 0;
+                angle = 0;
+                y = 0;
+                zacceleration = 0;
+                xGraph.clear();
+                yGraph.clear();
                 button.setText("start");
+                lastGyroTime = SystemClock.elapsedRealtimeNanos();
+                lastAcceleroTime = SystemClock.elapsedRealtimeNanos();
             }
         });
-
     }
 }
